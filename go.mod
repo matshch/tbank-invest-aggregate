@@ -5,7 +5,7 @@ go 1.23.6
 require (
 	github.com/russianinvestments/invest-api-go-sdk v1.28.1
 	go.uber.org/zap v1.25.0
-	google.golang.org/grpc v1.57.0
+	google.golang.org/grpc v1.57.1
 )
 
 require (
