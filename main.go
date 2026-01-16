@@ -112,6 +112,9 @@ var tickers = make(map[string]string)
 var instrumentCurrencies = make(map[string]string)
 
 func getAssetUid(in *investgo.InstrumentsServiceClient, logger *zap.Logger, instrumentUid string) (string, error) {
+	if instrumentUid == "" {
+		return "", nil
+	}
 	if assetUid, ok := assets[instrumentUid]; ok {
 		return assetUid, nil
 	}
@@ -320,6 +323,7 @@ func main() {
 						zap.String("name", operation.Name),
 						zap.String("description", operation.Description),
 						zap.Error(err))
+					return
 				}
 			}
 			if operation.AssetUid != "" {
