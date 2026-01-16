@@ -111,21 +111,24 @@ var tickers = make(map[string]string)
 // some assets are traded in different currencies depending on the instrument
 var instrumentCurrencies = make(map[string]string)
 
-func getAssetUid(in *investgo.InstrumentsServiceClient, instrumentUid string) (string, error) {
+func getAssetUid(in *investgo.InstrumentsServiceClient, logger *zap.Logger, instrumentUid string) (string, error) {
 	if assetUid, ok := assets[instrumentUid]; ok {
 		return assetUid, nil
 	}
+	logger.Debug("getting instrument info to resolve asset", zap.String("instrument", instrumentUid))
 	resp, err := in.InstrumentByUid(instrumentUid)
 	if err != nil {
 		return "", err
 	}
 	assetUid := resp.Instrument.AssetUid
+	logger.Debug("getting asset info", zap.String("asset", assetUid), zap.String("ticker", resp.Instrument.Ticker))
 	asset, err := in.GetAssetBy(assetUid)
 	if err != nil {
 		return "", err
 	}
 	for _, inst := range asset.Asset.Instruments {
 		assets[inst.Uid] = assetUid
+		logger.Debug("getting instrument info to resolve currency", zap.String("instrument", inst.Uid))
 		instInfo, err := in.InstrumentByUid(inst.Uid)
 		if err != nil {
 			return "", err
@@ -248,6 +251,7 @@ func main() {
 	}
 
 	in := client.NewInstrumentsServiceClient()
+	logger.Debug("getting currency instruments")
 	currencyInstruments, err := getCurrencyInstruments(in)
 	if err != nil {
 		logger.Error("error getting currency instruments", zap.Error(err))
@@ -255,23 +259,25 @@ func main() {
 	}
 
 	op := client.NewOperationsServiceClient()
+	logger.Debug("getting portfolio")
 	now := time.Now()
 	positions, err := op.GetPortfolio(config.AccountId, pb.PortfolioRequest_RUB)
 	if err != nil {
-		logger.Error("error getting positions", zap.Error(err))
+		logger.Error("error getting portfolio", zap.Error(err))
 		return
 	}
 
 	portfolio := make(map[string]*big.Rat, len(positions.Positions))
 	prices := make(map[string]*big.Rat, len(positions.Positions))
 	currencies := make(map[string]string, len(positions.Positions))
+	logger.Debug("processing portfolio positions")
 	for _, position := range positions.Positions {
 		var key string
 		if currency, ok := currencyInstruments[position.PositionUid]; ok {
 			key = currency
 		} else {
 			var err error
-			key, err = getAssetUid(in, position.InstrumentUid)
+			key, err = getAssetUid(in, logger, position.InstrumentUid)
 			if err != nil {
 				logger.Error("error getting instrument for position",
 					zap.String("position", position.Figi),
@@ -296,6 +302,7 @@ func main() {
 		To:        now,
 		State:     pb.OperationState_OPERATION_STATE_EXECUTED,
 	}
+	logger.Debug("getting operations")
 	for {
 		operations, err := op.GetOperationsByCursor(req)
 		if err != nil {
@@ -306,7 +313,7 @@ func main() {
 		}
 		for _, operation := range operations.Items {
 			if _, ok := tickers[operation.AssetUid]; !ok {
-				_, err = getAssetUid(in, operation.InstrumentUid)
+				_, err = getAssetUid(in, logger, operation.InstrumentUid)
 				if err != nil {
 					logger.Error("error getting instrument for operation",
 						zap.String("figi", operation.Figi),
@@ -332,11 +339,16 @@ func main() {
 			break
 		}
 		req.Cursor = operations.NextCursor
+		logger.Debug("getting operations", zap.Time("last_processed", operations.Items[len(operations.Items)-1].Date.AsTime()))
 	}
 	logger.Info("instruments", zap.Any("assets", assets), zap.Any("tickers", tickers))
 
 	md := client.NewMarketDataServiceClient()
 	for instrumentUid, assetUid := range assets {
+		logger.Debug("getting candles",
+			zap.String("instrument", instrumentUid),
+			zap.String("asset", assetUid),
+			zap.String("ticker", tickers[assetUid]))
 		candles, err := md.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
 			Instrument: instrumentUid,
 			Interval:   pb.CandleInterval_CANDLE_INTERVAL_HOUR,
@@ -348,7 +360,7 @@ func main() {
 		})
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
-				logger.Warn("cannot found candles for instrument",
+				logger.Warn("cannot find candles for instrument",
 					zap.String("instrument", instrumentUid),
 					zap.String("asset", assetUid),
 					zap.String("ticker", tickers[assetUid]))
@@ -361,7 +373,7 @@ func main() {
 				zap.Error(err))
 			return
 		}
-		logger.Debug("got candles",
+		logger.Debug("processing candles",
 			zap.String("instrument", instrumentUid),
 			zap.String("asset", assetUid),
 			zap.String("ticker", tickers[assetUid]))
