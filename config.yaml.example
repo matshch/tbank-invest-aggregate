@@ -1,3 +1,4 @@
-EndPoint: invest-public-api.tinkoff.ru:443
+EndPoint: invest-public-api.tbank.ru:443
+TLSCACertFile: ca.pem
 APIToken: # read-only T‑Bank Invest API from https://www.tbank.ru/invest/settings/api/
 #AccountId: agreement number, leave empty to get the list

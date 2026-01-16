@@ -24,52 +24,36 @@ import (
 	"slices"
 	"time"
 
-	"github.com/russianinvestments/invest-api-go-sdk/investgo"
-	pb "github.com/russianinvestments/invest-api-go-sdk/proto"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"opensource.tbank.ru/invest/invest-go/investgo"
+	pb "opensource.tbank.ru/invest/invest-go/proto"
 )
 
-const TaxYear = 2024
+const TaxYear = 2025
 
 // Updates are applied in reverse order, from newest to oldest
 type Update func(portfolio, prices map[string]*big.Rat, currencies map[string]string)
 
-var updates = map[time.Time][]Update{
-	time.Date(2024, 4, 4, 0, 0, 0, 0, time.UTC): {
-		func(portfolio, _ map[string]*big.Rat, _ map[string]string) {
-			// X5 stocks were added without an operation
-			// TBank data is misleading here, as FIVE stocks were not traded since April 2024
-			// and they cost 0 according to API, so reusing X5 prices approximates it a bit.
-			delete(portfolio, "64a6b345-a926-4517-ad52-d68bbc82ceb9")
-		},
-	},
-}
-
-var replacementAssets = map[string]string{
-	// YNDX -> YDEX
-	// converted 1:1, price history moved to YDEX
-	"fd619140-904d-4607-bc14-015abe40e278": "4b449b8c-7433-479f-9cad-53aa8226a28c",
-}
+var updates = map[time.Time][]Update{}
 
 // https://fiscaldata.treasury.gov/datasets/treasury-reporting-rates-exchange/treasury-reporting-rates-of-exchange-source
 var ExchangeRates = map[string]*big.Rat{
-	"amd": big.NewRat(390, 1),
-	"byn": big.NewRat(3443, 1000),
-	"chf": big.NewRat(905, 1000),
-	"cny": big.NewRat(7299, 1000),
-	"eur": big.NewRat(92, 100),
-	"gbp": big.NewRat(797, 1000),
-	"hkd": big.NewRat(7766, 1000),
-	"jpy": big.NewRat(15685, 100),
-	"kgs": big.NewRat(86999, 1000),
-	"kzt": big.NewRat(5246, 10),
-	"rub": big.NewRat(91746, 1000),
-	"tjs": big.NewRat(1085, 100),
-	"try": big.NewRat(35365, 1000),
+	"amd": big.NewRat(380, 1),
+	"chf": big.NewRat(792, 1000),
+	"cny": big.NewRat(6998, 1000),
+	"eur": big.NewRat(851, 1000),
+	"gbp": big.NewRat(743, 1000),
+	"hkd": big.NewRat(7784, 1000),
+	"jpy": big.NewRat(15661, 100),
+	"kgs": big.NewRat(87412, 1000),
+	"kzt": big.NewRat(50628, 100),
+	"rub": big.NewRat(81996, 1000),
+	"tjs": big.NewRat(92, 10),
+	"try": big.NewRat(42951, 1000),
 	"usd": big.NewRat(1, 1),
-	"uzs": big.NewRat(128999, 10),
+	"uzs": big.NewRat(1199941, 100),
 }
 
 type Quotation interface {
@@ -188,7 +172,8 @@ func OperationToUpdate(operation *pb.OperationItem) (Update, error) {
 	case pb.OperationType_OPERATION_TYPE_BROKER_FEE,
 		pb.OperationType_OPERATION_TYPE_DIVIDEND,
 		pb.OperationType_OPERATION_TYPE_DIVIDEND_TAX,
-		pb.OperationType_OPERATION_TYPE_INPUT:
+		pb.OperationType_OPERATION_TYPE_INPUT,
+		pb.OperationType_OPERATION_TYPE_TAX:
 		return func(portfolio, _ map[string]*big.Rat, _ map[string]string) {
 			portfolio[operation.Payment.Currency] = SubRat(portfolio[operation.Payment.Currency], ToRat(operation.Payment))
 			if portfolio[operation.Payment.Currency].Cmp(&big.Rat{}) == 0 {
@@ -320,9 +305,7 @@ func main() {
 			return
 		}
 		for _, operation := range operations.Items {
-			if replacement, ok := replacementAssets[operation.AssetUid]; ok {
-				operation.AssetUid = replacement
-			} else if _, ok := tickers[operation.AssetUid]; !ok {
+			if _, ok := tickers[operation.AssetUid]; !ok {
 				_, err = getAssetUid(in, operation.InstrumentUid)
 				if err != nil {
 					logger.Error("error getting instrument for operation",
@@ -354,13 +337,6 @@ func main() {
 
 	md := client.NewMarketDataServiceClient()
 	for instrumentUid, assetUid := range assets {
-		if instrumentUid == "38e0d7ac-23cf-4bba-9a6c-d09cdffcfb74" {
-			logger.Debug("skipping unreliable candles for instrument",
-				zap.String("instrument", instrumentUid),
-				zap.String("asset", assetUid),
-				zap.String("ticker", tickers[assetUid]))
-			continue
-		}
 		candles, err := md.GetHistoricCandles(&investgo.GetHistoricCandlesRequest{
 			Instrument: instrumentUid,
 			Interval:   pb.CandleInterval_CANDLE_INTERVAL_HOUR,
