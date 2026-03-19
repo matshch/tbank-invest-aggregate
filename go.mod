@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	go.uber.org/zap v1.27.1
-	google.golang.org/grpc v1.78.0
+	google.golang.org/grpc v1.79.3
 	opensource.tbank.ru/invest/invest-go v1.40.1
 )
 
