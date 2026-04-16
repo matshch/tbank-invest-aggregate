@@ -179,7 +179,9 @@ func OperationToUpdate(operation *pb.OperationItem) (Update, error) {
 		pb.OperationType_OPERATION_TYPE_DIVIDEND,
 		pb.OperationType_OPERATION_TYPE_DIVIDEND_TAX,
 		pb.OperationType_OPERATION_TYPE_INPUT,
-		pb.OperationType_OPERATION_TYPE_TAX:
+		pb.OperationType_OPERATION_TYPE_OUTPUT,
+		pb.OperationType_OPERATION_TYPE_TAX,
+		pb.OperationType_OPERATION_TYPE_TAX_CORRECTION:
 		return func(portfolio, _ map[string]*big.Rat, _ map[string]string) {
 			portfolio[operation.Payment.Currency] = SubRat(portfolio[operation.Payment.Currency], ToRat(operation.Payment))
 			if portfolio[operation.Payment.Currency].Cmp(&big.Rat{}) == 0 {
